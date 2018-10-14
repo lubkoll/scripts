@@ -1,0 +1,58 @@
+#!/bin/bash
+
+FILE_EXTENSIONS=".c .h .cpp .hpp .cc .hh .cxx"
+CURRENT_TIME=$(date +%s -d "-$1")
+START_TIME=$(date +%s -d "-$1")
+
+matches_extension() {
+    local filename=$(basename "$1")
+    local extension=".${filename##*.}"
+    local ext
+    for ext in $FILE_EXTENSIONS; do [ "$ext" = "$extension" ] && return 0; done
+    return 1
+}
+
+sort () {
+    local -n arr=$1
+    local -n arr2=$2
+
+    for ((i=0; i <= $((${#arr[@]} - 2)); ++i))
+    do
+        for ((j=((i + 1)); j <= ((${#arr[@]} - 1)); ++j))
+        do
+            if [[ ${arr[i]} -lt ${arr[j]} ]]
+            then
+                # echo $i $j ${arr[i]} ${arr[j]}
+                tmp=${arr[i]}
+                arr[i]=${arr[j]}
+                arr[j]=$tmp   
+                tmp=${arr2[i]}
+                arr2[i]=${arr2[j]}
+                arr2[j]=$tmp         
+            fi
+        done
+    done
+}
+
+FILES=()
+while IFS= read -r line; do
+    FILE=$(echo $line | awk '{print $4;}')
+    if [ -f "$FILE" ] && matches_extension "$FILE"; then
+        FILES+=($FILE)
+    fi
+done < <(git ls-tree --full-tree -r HEAD)
+
+echo "Changes during last ${1}:"
+
+COMMIT_COUNTS=()
+for FILE in "${FILES[@]}"
+do
+   : 
+    COMMIT_COUNTS+=($(git rev-list HEAD --count --after=$START_TIME $FILE))
+done
+
+sort COMMIT_COUNTS FILES
+
+for ((i=0;i<${#COMMIT_COUNTS[@]};++i)); do
+    printf "%s: %s\n" "${FILES[i]}" "${COMMIT_COUNTS[i]}"
+done
