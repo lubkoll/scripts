@@ -1,0 +1,83 @@
+#!/bin/bash
+
+FILE_EXTENSIONS=".c .h .cpp .hpp .cc .hh .cxx"
+CURRENT_TIME=$(date +%s)
+
+OLDER_THAN_SIX_MONTH=0
+OLDER_THAN_ONE_YEAR=0
+OLDER_THAN_TWO_YEARS=0
+OLDER_THAN_THREE_YEARS=0
+OVERALL_LINES=0
+
+print_stats() {
+    echo " === Lines: $OVERALL_LINES"
+    OLDER_THAN_SIX_MONTH_RATIO=$(awk -v m=$OLDER_THAN_SIX_MONTH -v n=$OVERALL_LINES 'BEGIN { print (100 * m / n) }')
+    echo "older than six month: $OLDER_THAN_SIX_MONTH ($OLDER_THAN_SIX_MONTH_RATIO%)"
+    OLDER_THAN_ONE_YEAR_RATIO=$(awk -v m=$OLDER_THAN_ONE_YEAR -v n=$OVERALL_LINES 'BEGIN { print (100 * m / n) }')
+    echo "older than one year: $OLDER_THAN_ONE_YEAR ($OLDER_THAN_ONE_YEAR_RATIO%)"
+    OLDER_THAN_TWO_YEARS_RATIO=$(awk -v m=$OLDER_THAN_TWO_YEARS -v n=$OVERALL_LINES 'BEGIN { print (100 * m / n) }')
+    echo "older than two years: $OLDER_THAN_TWO_YEARS ($OLDER_THAN_TWO_YEARS_RATIO%)"
+    OLDER_THAN_THREE_YEARS_RATIO=$(awk -v m=$OLDER_THAN_THREE_YEARS -v n=$OVERALL_LINES 'BEGIN { print (100 * m / n) }')
+    echo "older than three years: $OLDER_THAN_THREE_YEARS ($OLDER_THAN_THREE_YEARS_RATIO%)"
+    echo ""
+}
+
+difference_in_days() {
+    local COUNT=`expr $1 - $2`
+    echo $(( COUNT / (24*3600) ))
+}
+
+matches_extension() {
+    local filename=$(basename "$1")
+    local extension=".${filename##*.}"
+    local ext
+    for ext in $FILE_EXTENSIONS; do [ "$ext" = "$extension" ] && return 0; done
+    return 1
+}
+
+count_timestamps_and_lines() {
+    while IFS= read -r linedata; do
+       if [ "$(echo $linedata | awk '{print $1;}')" == "committer-time" ]; then
+            timestamp=$(echo $linedata | awk '{print $2;}')
+            count=$(difference_in_days $CURRENT_TIME $timestamp)
+            ((OVERALL_LINES++))
+           if [ "$count" -gt 178 ]; then
+                ((OLDER_THAN_SIX_MONTH++))
+            fi
+           if [ "$count" -gt 356 ]; then
+                ((OLDER_THAN_ONE_YEAR++))
+            fi
+           if [ "$count" -gt 712 ]; then
+                ((OLDER_THAN_TWO_YEARS++))
+            fi
+           if [ "$count" -gt 1068 ]; then
+                ((OLDER_THAN_THREE_YEARS++))
+            fi
+        fi 
+        
+    done < <(git blame --line-porcelain $1)
+}
+
+FILES=()
+while IFS= read -r line; do
+    FILE=$(echo $line | awk '{print $4;}')
+    if [ -f "$FILE" ] && matches_extension "$FILE"; then
+        FILES+=($FILE)
+    fi
+done < <(git ls-tree --full-tree -r HEAD)
+
+echo " ===== Overall files: ${#FILES[@]}"
+
+counter=0
+for FILE in "${FILES[@]}"
+do
+   : 
+   count_timestamps_and_lines $FILE
+   ((counter++))
+   if [ "$(($counter % 10))" -eq 0 ]; then
+      echo " === Processed files: $counter / ${#FILES[@]}"
+       print_stats
+   fi
+done
+
+print_stats
