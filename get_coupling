@@ -1,0 +1,104 @@
+#!/bin/bash
+
+FILE_EXTENSIONS=".c .h .cpp .hpp .cc .hh .cxx"
+COUPLINGS=()
+COUPLINGS_COUNT=()
+
+matches_extension() {
+    local filename=$(basename "$1")
+    local extension=".${filename##*.}"
+    local ext
+    for ext in $FILE_EXTENSIONS; do [ "$ext" = "$extension" ] && return 0; done
+    return 1
+}
+
+get_files() {
+   FILES_PER_COMMIT=""
+    while IFS= read -r file; do
+        if matches_extension "$file"; then
+            FILES_PER_COMMIT="$FILES_PER_COMMIT $file"
+        fi
+    done < <(git diff-tree --no-commit-id --name-only -r $1)
+    echo $FILES_PER_COMMIT
+}
+
+contains_element () {
+    local e match="$1"
+    shift
+    for e; do [[ "$e" == "$match" ]] && return 0; done
+    return 1
+}
+
+contains_coupling () {
+    if contains_element "$1 $2" "${COUPLINGS[@]}" || contains_element "$2 $1" "${COUPLINGS[@]}"; then
+        return 0
+    fi
+    return 1
+}
+
+find_coupling_idx () {
+    for ((i=0;i<${#COUPLINGS[@]}-1;++i)); do
+        if [ "${COUPLINGS[i]}" == "$1" ]; then
+            echo $i
+            return
+        fi
+    done
+}
+
+find_coupling_idx_sym () {
+    idx=$(find_coupling_idx "$2 $1")
+    if [ "$idx" == "" ]; then
+        idx=$(find_coupling_idx "$1 $2")
+    fi
+    echo $idx
+}
+
+add_coupling () {
+    IFS=' ' read -ra FILE_ARRAY <<< "$FILES_PER_COMMIT"
+    for ((i=0;i<${#FILE_ARRAY[@]}-1;++i)); do
+        for ((j=i+1;j<${#FILE_ARRAY[@]};++j)); do
+            idx=$(find_coupling_idx_sym ${FILE_ARRAY[i]} ${FILE_ARRAY[j]})
+            if [ "$idx" != "" ]; then
+                ((COUPLINGS_COUNT[idx]++))
+            else
+                COUPLINGS+=("${FILE_ARRAY[i]} ${FILE_ARRAY[j]}")
+                COUPLINGS_COUNT+=(1)
+            fi
+        done
+    done
+}
+
+COMMITS=()
+while IFS= read -r commit; do
+    COMMITS+=($commit)
+done < <(git log --pretty=format:"%H")
+
+FILES_PER_COMMITS=()
+counter=0
+for COMMIT in "${COMMITS[@]}"
+do
+   : 
+    FILES_PER_COMMIT=$(get_files $COMMIT)
+    if [ "$FILES_PER_COMMIT" == "" ]; then
+        continue
+    fi
+
+    IFS=' ' read -ra FILE_ARRAY <<< "$FILES_PER_COMMIT"
+    if [ "${#FILE_ARRAY[@]}" -eq 1 ]; then
+        continue
+    fi
+
+    add_coupling "$FILES_PER_COMMIT"
+
+    ((counter++))
+    if [ "$counter" -ge 20 ]; then
+        break
+    fi
+done
+
+    echo " === COUPLINGS === "
+    for ((i=0;i<${#COUPLINGS[@]}-1;++i)); do
+        echo "${COUPLINGS[i]}: ${COUPLINGS_COUNT[i]}" 
+    done
+
+
